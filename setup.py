@@ -9,15 +9,11 @@ except ImportError:
 
 
 setup(
-    name='TornOrm',
-    version='1.41',
-    license='BSD',
+    name='tornorm',
+    version='1.0',
     author='Gee',
     author_email='hatcatxyz@gmail.com',
     description='A simple ORM base on Torndb',
-    packages=[
-        'tornorm',
-    ],
     py_modules=['tornorm', ],
     install_requires=['torndb', 'DBUtils'],
 )
