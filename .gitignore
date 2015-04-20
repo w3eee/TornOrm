@@ -1,0 +1,7 @@
+.idea
+
+.hg
+
+*.pyc
+.hgignore
+MANIFEST.in
