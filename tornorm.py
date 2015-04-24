@@ -35,12 +35,20 @@ class MyConnection(Connection):
         setsession: 一个可选的SQL命令列表用于准备每个会话，如 ["set datestyle to german", ...]
         creator 函数或可以生成连接的函数可以接受这里传入的其他参数，例如主机名、数据库、用户名、密码等。你还可以选择传入creator函数的其他参数，允许失败重连和负载均衡。
         """
+        self.pool = None
+        self.mincached = mincached
+        self.maxcached = maxcached
         super(MyConnection, self).__init__(host=host, database=database, user=user, password=password,
                                            max_idle_time=max_idle_time, connect_timeout=connect_timeout,
                                            time_zone=time_zone, charset=charset, sql_mode=sql_mode)
-        self.pool = PooledDB.PooledDB(MySQLdb, mincached=mincached, maxcached=maxcached, **self._db_args)
+        # self.pool = PooledDB.PooledDB(MySQLdb, mincached=mincached, maxcached=maxcached, **self._db_args)
+
+    def init_pool(self):
+        self.pool = self.pool or PooledDB.PooledDB(MySQLdb, mincached=self.mincached, maxcached=self.maxcached,
+                                                   **self._db_args)
 
     def reconnect(self):
+        self.init_pool()
         self.close()
         self._db = self.pool.connection()
         # self._db.autocommit(True)
