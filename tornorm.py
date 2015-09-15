@@ -6,7 +6,7 @@
 from DBUtils import PooledDB
 
 import MySQLdb
-
+import time
 from torndb import Connection
 import logging
 import datetime
@@ -55,24 +55,25 @@ class MyConnection(Connection):
         self._db.cursor().connection.autocommit(True)
 
     def _ensure_connected(self):
-        self.reconnect()
+        # self.reconnect()
         # Mysql by default closes client connections that are idle for
         # 8 hours, but the client library does not report this fact until
         # you try to perform a query and it fails.  Protect against this
         # case by preemptively closing and reopening the connection
         # if it has been idle for too long (7 hours by default).
-        # if (self._db is None or
-        #     (time.time() - self._last_use_time > self.max_idle_time)):
-        #     self.reconnect()
-        # self._last_use_time = time.time()
+        if (self._db is None or
+                (time.time() - self._last_use_time > self.max_idle_time)):
+            self.reconnect()
+        self._last_use_time = time.time()
 
     def transaction(self, query, *parameters, **kwparameters):
         """
         :param transaction one sql
         :return: None if success else raise Exception
         """
+        self._ensure_connected()
         self._db.begin()
-        cursor = self._cursor()
+        cursor = self._db.cursor()
         try:
             result = cursor.execute(query, kwparameters or parameters)
             self._db.commit()
