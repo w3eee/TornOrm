@@ -65,6 +65,16 @@ class MyConnection(Connection):
                 (time.time() - self._last_use_time > self.max_idle_time)):
             self.reconnect()
         self._last_use_time = time.time()
+        try:
+            cur = self._db.cursor()
+            cur.execute('select 1')
+        except:
+            self.reconnect()
+        finally:
+            try:
+                cur.close()
+            except:
+                pass
 
     def transaction(self, query, *parameters, **kwparameters):
         """
