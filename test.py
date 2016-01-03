@@ -9,7 +9,7 @@ import unittest
 
 from tornorm import Base, get_connection, set_
 
-conn = get_connection(host='localhost', database='test', user='root', password='toor', maxcached=100,
+conn = get_connection(host='localhost', database='test', user='root', password='toor',
                       pre_exe=('set names utf8mb4', ))
 
 
@@ -30,7 +30,7 @@ class OrmTest(unittest.TestCase):
         self.conn = conn
         self.conn.execute("DROP TABLE IF EXISTS `test_orm`; CREATE TABLE `test_orm` (`id` int NOT NULL AUTO_INCREMENT,"
                           "name varchar(128),content varchar(64),`type` tinyint(2) DEFAULT 1,"
-                          "PRIMARY KEY (`id`)) ENGINE=MyISAM DEFAULT CHARSET=utf8;")
+                          "PRIMARY KEY (`id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8;")
 
     def test_new(self):
         t = TestOrm.new(name='test1', content='test', type=1)

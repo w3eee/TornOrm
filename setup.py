@@ -10,7 +10,7 @@ except ImportError:
 
 setup(
     name='tornorm',
-    version='1.3',
+    version='1.4',
     author='Gee',
     author_email='hatcatxyz@gmail.com',
     description='A simple ORM base on Torndb',
