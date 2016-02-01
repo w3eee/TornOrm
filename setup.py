@@ -10,10 +10,10 @@ except ImportError:
 
 setup(
     name='tornorm',
-    version='1.4',
-    author='Gee',
+    version='1.45',
+    author='Wee',
     author_email='hatcatxyz@gmail.com',
     description='A simple ORM base on Torndb',
     py_modules=['tornorm', ],
-    install_requires=['torndb', 'DBUtils'],
+    install_requires=['torndb', ],
 )

@@ -11,7 +11,7 @@ from torndb import Connection
 import logging
 import datetime
 
-version = '1.4'
+version = '1.45'
 
 
 _CONNS_ = {}
@@ -310,9 +310,21 @@ class Base(object):
             return getattr(self, key)
         raise KeyError
 
+    @classmethod
+    def begin(cls):
+        cls.execute_sql('begin;', [], mode='execute')
+
+    @classmethod
+    def commit(cls):
+        cls.execute_sql('commit;', [], mode='execute')
+
+    @classmethod
+    def rollback(cls):
+        cls.execute_sql('rollback;', [], mode='execute')
+
     # 定义类级别的操作方法
     @classmethod
-    def new(cls, **kwargs):
+    def new(cls, commit=True, **kwargs):
         """ 新建一条记录并保存到数据库, 返回对象
         """
         if not kwargs:
@@ -326,6 +338,8 @@ class Base(object):
 
         # 构建sql插入语句
         sql = "INSERT INTO `" + cls._table_name + "` ( " + row_names + " ) VALUES ( " + row_values + " ) "
+        if not commit:
+            return sql, values
         max_try = 3
         for i in range(max_try):
             try:
@@ -345,7 +359,7 @@ class Base(object):
         return add  # 返回对象
 
     @classmethod
-    def new_mul(cls, *items):
+    def new_mul(cls, commit=True, *items):
         """ 新建多个记录到数据库, 返回新建对象列表, 参数items为字典列表
         sql_rows = _to_sql(str(items[0].keys())[1:-1])
         values = []
@@ -371,6 +385,8 @@ class Base(object):
                     # 异常
                     raise Exception('News Error: %s' % repr(d))
         sql = 'INSERT INTO `' + cls._table_name + '` (' + sql_rows + ') VALUES ' + row_values
+        if not commit:
+            return sql, values
         _db_con = cls._db_conn
         try:
             fid = _execute_sql(sql, values, db_con=_db_con, mode='execute', echo=cls._echo)
@@ -380,23 +396,19 @@ class Base(object):
             return None
 
     @classmethod
-    def __get(cls, tn, fields, **kwargs):
-        """ sql 缓存中间层
+    def get(cls, fields=None, commit=True, **kwargs):
+        """ 获取单个对象, 根据id获取, 取得多个对象将导致异常
         """
         is_o = not fields
         fields = fields or cls._rows
         re_str, values = _rebuild_argv(kwargs, rows=cls._rows)
         _where = ''.join((' WHERE ', re_str)) if re_str else ''
         sql = ''.join(
-            ('SELECT ', list_to_sql(fields), ' FROM ',  '`', tn, '`', _where, ' LIMIT 1')
+            ('SELECT ', list_to_sql(fields), ' FROM ',  '`', cls._table_name, '`', _where, ' LIMIT 1')
         )
-        return sql, values, is_o
-
-    @classmethod
-    def get(cls, fields=None, **kwargs):
-        """ 获取单个对象, 根据id获取, 取得多个对象将导致异常
-        """
-        sql, values, is_o = cls.__get(tn=cls._table_name, fields=fields, **kwargs)
+        if not commit:
+            return sql, values
+        # sql, values, is_o = cls.__get(tn=cls._table_name, fields=fields, **kwargs)
         _db_con = cls._db_conn
         o = _execute_sql(sql, values, db_con=_db_con, mode="get", echo=cls._echo)
         if is_o and o:
@@ -436,12 +448,14 @@ class Base(object):
         return sql, values, is_o
 
     @classmethod
-    def find(cls, args=None, join=None, fields=None, order_by='', limit='', **kwargs):
+    def find(cls, args=None, join=None, fields=None, order_by='', limit='', commit=True, **kwargs):
         """ 根据条件获取多个对象, 返回对象列表, 支持单张连表
             exam: find(id=id, name=name) -- and
         """
         sql, values, is_o = cls.__find(tn=cls._table_name, args=args, join=join, fields=fields,
                                        order_by=order_by, limit=limit, **kwargs)
+        if not commit:
+            return sql, values
         _db_con = cls._db_conn
         ds = _execute_sql(sql, values, db_con=_db_con, mode='query', echo=cls._echo)
         return [cls(o) for o in ds] if is_o else ds
@@ -456,7 +470,7 @@ class Base(object):
         return _execute_sql(sql, values, db_con=_db_con, mode='iter', echo=cls._echo)
 
     @classmethod
-    def all(cls, fields=None, order_by='', limit=''):
+    def all(cls, fields=None, order_by='', limit='', commit=True):
         is_o = not fields
         fields = fields or cls._rows
         if order_by:
@@ -466,6 +480,8 @@ class Base(object):
         sql = ''.join(
             ('select ', list_to_sql(fields), ' from ', cls._table_name, order_by, limit)
         )
+        if not commit:
+            return sql, []
         _db_con = cls._db_conn
         ds = _execute_sql(sql, [], db_con=_db_con, mode='query', echo=cls._echo)
         return [cls(d) for d in ds] if is_o else ds
@@ -498,7 +514,7 @@ class Base(object):
         return sql, values, is_o
 
     @classmethod
-    def page(cls, page, args=None, join=None, fields=None, order_by='', per_page=None, **kwargs):
+    def page(cls, page, args=None, join=None, fields=None, order_by='', per_page=None, commit=True, **kwargs):
         """ 页数从第1页开始, 支持单张连表
             page: 页数
             args: and, or支持
@@ -507,69 +523,91 @@ class Base(object):
             kwargs: 限制条件
         """
         per_page = per_page or cls.per_page
-        sql, values, is_o = cls.__page(tn=cls._table_name, page=page, args=args, join=join,
-                                       fields=fields, order_by=order_by, per_page=per_page, **kwargs)
+        is_o = not fields
+        fields = fields or cls._rows
+
+        page = int(page)
+        page = max(page-1, 0)
+        beg = page * per_page
+        if order_by:
+            order_by = ' ORDER BY ' + order_by
+        table = cls._table_name if join else ''
+        re_str, values = _rebuild_argv(kwargs, args=args, rows=cls._rows, table=table)
+        join_sql = ''
+        if join:
+            if re_str and join[1]:
+                re_str += ' AND '
+            re_str = re_str + join[1]
+            values.extend(join[2])
+            join_sql = join[0]
+        _where = ''.join((' WHERE ', re_str)) if re_str else ''
+        page_limit = ' LIMIT %s OFFSET %s' % (per_page, beg)
+        sql = ''.join(
+            ('SELECT ', list_to_sql(fields, table=table), ' FROM `', cls._table_name, '` ', join_sql, _where,
+             order_by, page_limit)
+        )
+        if not commit:
+            return sql, values
+        # sql, values, is_o = cls.__page(tn=cls._table_name, page=page, args=args, join=join,
+        #                                fields=fields, order_by=order_by, per_page=per_page, **kwargs)
         _db_con = cls._db_conn
         ds = _execute_sql(sql, values, db_con=_db_con, mode='query', echo=cls._echo)
         return [cls(o) for o in ds] if is_o else ds
 
     @classmethod
-    def __delete(cls, tn, args, **kwargs):
-        re_str, values = _rebuild_argv(kwargs, args=args, rows=cls._rows)
-        sql = ''.join(
-            ('DELETE FROM `', tn, '` WHERE ', re_str)
-        )
-        return sql, values
-
-    @classmethod
-    def delete(cls, args=None, **kwargs):
+    def delete(cls, args=None, commit=True, **kwargs):
         """ 删除相关对象, 直接生效, 谨慎操作
         """
-        sql, values = cls.__delete(tn=cls._table_name, args=args, **kwargs)
+        re_str, values = _rebuild_argv(kwargs, args=args, rows=cls._rows)
+        sql = ''.join(
+            ('DELETE FROM `', cls._table_name, '` WHERE ', re_str)
+        )
+        # sql, values = cls.__delete(tn=cls._table_name, args=args, **kwargs)
+        if not commit:
+            return sql, values
         _db_con = cls._db_conn
         return _execute_sql(sql, values, db_con=_db_con, mode='execute_rowcount', echo=cls._echo)
 
     @classmethod
-    def __number(cls, tn, args, **kwargs):
+    def number(cls, args=None, commit=True, **kwargs):
+        """ 计数
+        """
         re_str, values = _rebuild_argv(kwargs, args=args, rows=cls._rows)
         _where = ''.join((' WHERE ', re_str)) if re_str else ''
         sql = ''.join(
-            ('SELECT COUNT(*) FROM `', tn, '` ', _where)
+            ('SELECT COUNT(*) FROM `', cls._table_name, '` ', _where)
         )
-        return sql, values
-
-    @classmethod
-    def number(cls, args=None, **kwargs):
-        """ 计数
-        """
-        sql, values = cls.__number(tn=cls._table_name, args=args, **kwargs)
+        # sql, values = cls.__number(tn=cls._table_name, args=args, **kwargs)
+        if not commit:
+            return sql, values
         _db_con = cls._db_conn
         result = _execute_sql(sql, values, db_con=_db_con, mode='query', echo=cls._echo)
         return int(result[0].get('COUNT(*)', 0)) if result else 0
 
     @classmethod
-    def __cls_update(cls, tn, sets, args, **kwargs):
-        set_keys, set_values = sets
-        set_keys = set_keys.replace('(', '').replace(')', '')
-        re_str, values = _rebuild_argv(kwargs, args=args, rows=cls._rows)
-        _where = ''.join((' WHERE ', re_str)) if re_str else ''
-        sql = ''.join(
-            ('UPDATE `', tn, '` SET ', set_keys, _where)
-        )
-        set_values.extend(values)
-        return sql, set_values
-
-    @classmethod
-    def cls_update(cls, sets=None, args=None, **kwargs):
+    def cls_update(cls, sets=None, args=None, commit=True, **kwargs):
         """
             类级别的更新方法
             usage: Cls.cls_update(set_(a=32, b=34), and_(id=3, status=0))
         """
         if not sets:
             return 0
-        sql, set_values = cls.__cls_update(tn=cls._table_name, sets=sets, args=args, **kwargs)
+        set_keys, set_values = sets
+        set_keys = set_keys.replace('(', '').replace(')', '')
+        re_str, values = _rebuild_argv(kwargs, args=args, rows=cls._rows)
+        _where = ''.join((' WHERE ', re_str)) if re_str else ''
+        sql = ''.join(
+            ('UPDATE `', cls._table_name, '` SET ', set_keys, _where)
+        )
+        # set_values.extend(values)
+        vs = values[::]
+        vs.extend(set_values)
+        vs.extend(values)
+        sql = 'select id from ' + cls._table_name + _where + ' for update;' + sql
         _db_con = cls._db_conn
-        return _execute_sql(sql, set_values, db_con=_db_con, mode='execute_rowcount', echo=cls._echo)
+        if not commit:
+            return sql, vs
+        return _execute_sql(sql, vs, db_con=_db_con, mode='execute_rowcount', echo=cls._echo)
 
     @classmethod
     def execute_sql(cls, sql, values, mode):
@@ -585,14 +623,22 @@ class Base(object):
         return sql, values
 
     # 对象级别方法
-    def update(self, **kwargs):
+    def update(self, commit=True, **kwargs):
         """ 更新对象多个值, 单个值直接设置并调用save方法即可
         """
         if not kwargs:
             return self
-        kwargs['id'] = self.id
-        sql, values = self.__update(tn=self._table_name, **kwargs)
+        # kwargs['id'] = self.id
+        re_str, values = _rebuild_argv(kwargs, args=None, rows=self._rows, link=' , ')
+        re_str = re_str.replace('(', '').replace(')', '')  # update 语句不可包含括号
+        sql = ''.join(
+            ('UPDATE `', self._table_name, '` SET ', re_str, ' WHERE `id` = "', str(self.id), '"')
+        )
+        if not commit:
+            return sql, values
+        # sql, values = self.__update(tn=self._table_name, **kwargs)
         _db_con = self._db_conn
+        # try:
         rows = _execute_sql(sql, values, db_con=_db_con, mode='execute_rowcount', echo=self._echo)
         if rows:
             # 更新成功, 设置新的属性

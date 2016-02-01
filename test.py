@@ -59,10 +59,15 @@ class OrmTest(unittest.TestCase):
 
     def test_new_mul(self):
         data = [dict(name='test%s' % i, content='test%s' % i) for i in range(5)]
-        rs = TestOrm.new_mul(*data)
+        # print '(****ddata: ', data
+        rs = TestOrm.new_mul(True, *data)
+        # sql, value = TestOrm.new_mul(False, *data)
+        # print '***sql: ', sql
+        # print '***values: ', value
         self.assertTrue(rs)
         # 此时数据库有五条数据
         rs = self.conn.query('select * from test_orm')
+        # print '***rs: ', rs
         self.assertEqual(len(rs), 5)
 
     def test_page(self):
@@ -90,6 +95,21 @@ class OrmTest(unittest.TestCase):
         self.assertFalse(r1)
         r2 = self.conn.query('select * from test_orm where name="test1"')
         self.assertTrue(r2)
+
+    def test_transaction(self):
+        self._init_data()
+        # try:
+        TestOrm.begin()
+        sql, value = TestOrm.cls_update(commit=False, sets=set_(name="CONCAT(name, 'test')"), name="test0")
+        TestOrm.execute_sql(sql, value, mode='execute')
+        TestOrm.commit()
+        r = self.conn.query('select * from test_orm where name="test0test"')
+        self.assertTrue(r)
+        r = self.conn.query('select * from test_orm where name="test0"')
+        self.assertFalse(r)
+        # except Exception as ex:
+        #     print 'ex: ', ex
+        #     TestOrm.rollback()
 
     def test_update(self):
         self._init_data()
