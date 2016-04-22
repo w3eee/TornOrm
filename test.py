@@ -6,11 +6,23 @@
 # run: create database test default character set utf8  # in mysql-client
 
 import unittest
+from torndb import Connection
+from tornorm import Base, set_
 
-from tornorm import Base, get_connection, set_
 
-conn = get_connection(host='localhost', database='test', user='root', password='toor',
-                      pre_exe=('set names utf8mb4', ))
+_CONNS_ = {}
+
+
+def get_conn(db_name, pre_sqls=None):
+    if db_name in _CONNS_:
+        return _CONNS_[db_name]
+    pre_sqls = pre_sqls or []
+    _CONNS_[db_name] = db = Connection(host='localhost', database=db_name, user='root', password='toor')
+    db._db_args.pop('init_command', None)
+    db.execute("set TIME_ZONE = 'SYSTEM'")
+    for sql in pre_sqls:
+        db.execute(sql)
+    return db
 
 
 class TestOrm(Base):
@@ -20,14 +32,17 @@ class TestOrm(Base):
         'id', 'name', 'content', 'type'
     ]
     _per_page = 10
-    _db_conn = conn
+
+    @classmethod
+    def get_conn(cls):
+        return get_conn('test', pre_sqls=('set names utf8mb4', ))
 
 
 class OrmTest(unittest.TestCase):
 
     def setUp(self):
         # 建立数据库表
-        self.conn = conn
+        self.conn = get_conn('test')
         self.conn.execute("DROP TABLE IF EXISTS `test_orm`; CREATE TABLE `test_orm` (`id` int NOT NULL AUTO_INCREMENT,"
                           "name varchar(128),content varchar(64),`type` tinyint(2) DEFAULT 1,"
                           "PRIMARY KEY (`id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8;")
@@ -98,18 +113,19 @@ class OrmTest(unittest.TestCase):
 
     def test_transaction(self):
         self._init_data()
-        # try:
-        TestOrm.begin()
-        sql, value = TestOrm.cls_update(commit=False, sets=set_(name="CONCAT(name, 'test')"), name="test0")
-        TestOrm.execute_sql(sql, value, mode='execute')
-        TestOrm.commit()
-        r = self.conn.query('select * from test_orm where name="test0test"')
+        try:
+            TestOrm.begin()
+            sql, value = TestOrm.cls_update(commit=False, sets=set_(name="test1"), name="test0")
+            TestOrm.execute_sql(sql, value, mode='execute')
+            # raise Exception('rollback')
+            TestOrm.commit()
+            r = self.conn.query('select * from test_orm where name="test0"')
+            self.assertFalse(r)
+        except Exception as ex:
+            print 'ex: ', ex
+            TestOrm.rollback()
+        r = self.conn.query('select * from test_orm where name="test1"')
         self.assertTrue(r)
-        r = self.conn.query('select * from test_orm where name="test0"')
-        self.assertFalse(r)
-        # except Exception as ex:
-        #     print 'ex: ', ex
-        #     TestOrm.rollback()
 
     def test_update(self):
         self._init_data()

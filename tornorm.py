@@ -3,151 +3,36 @@
 """ base ORM
 """
 
-# from DBUtils import PooledDB
-
-# import MySQLdb
-# import time
-from torndb import Connection
 import logging
 import datetime
 
-version = '1.45'
+version = '2.0'
 
 
-_CONNS_ = {}
-
-
-# class MyConnection(Connection):
-#     """ 支持事务以及连接池
+# def get_connection(host, database, user=None, password=None, pre_exe=None, autocommit=True):
+#     """ 数据库连接
+#         pre_exe: 数据库准备执行语句, 列表方式罗列
 #     """
-#
-#     def __init__(self, host, database, user=None, password=None, mincached=0, maxcached=0,
-#                  max_idle_time=7 * 3600, connect_timeout=0, time_zone="+0:00",
-#                  charset="utf8", sql_mode="TRADITIONAL"):
-#         """ 连接池
-#         host: 'ip:port' port default 3306
-#         mincached : 启动时开启的空连接数量(缺省值 0 意味着开始时不创建连接)
-#         maxcached: 连接池使用的最多连接数量(缺省值 0 代表不限制连接池大小)
-#         maxshared: 最大允许的共享连接数量(缺省值 0 代表所有连接都是专用的)如果达到了最大数量，被请求为共享的连接将会被共享使用。
-#         maxconnections: 最大允许连接数量(缺省值 0 代表不限制)
-#         blocking: 设置在达到最大数量时的行为(缺省值 0 或 False 代表返回一个错误；其他代表阻塞直到连接数减少)
-#         maxusage: 单个连接的最大允许复用次数(缺省值 0 或 False 代表不限制的复用)。当达到最大数值时，连接会自动重新连接(关闭和重新打开)
-#         setsession: 一个可选的SQL命令列表用于准备每个会话，如 ["set datestyle to german", ...]
-#         creator 函数或可以生成连接的函数可以接受这里传入的其他参数，例如主机名、数据库、用户名、密码等。你还可以选择传入creator函数的其他参数，允许失败重连和负载均衡。
-#         """
-#         self.pool = None
-#         self.mincached = mincached
-#         self.maxcached = maxcached
-#         super(MyConnection, self).__init__(host=host, database=database, user=user, password=password,
-#                                            max_idle_time=max_idle_time, connect_timeout=connect_timeout,
-#                                            time_zone=time_zone, charset=charset, sql_mode=sql_mode)
-#         # self.pool = PooledDB.PooledDB(MySQLdb, mincached=mincached, maxcached=maxcached, **self._db_args)
-#
-#     def init_pool(self):
-#         self.pool = self.pool or PooledDB.PooledDB(MySQLdb, mincached=self.mincached, maxcached=self.maxcached,
-#                                                    **self._db_args)
-#
-#     def reconnect(self):
-#         self.init_pool()
-#         self.close()
-#         self._db = self.pool.connection()
-#         # self._db._con.autocommit(False)
-#         # self._db.cursor().connection.autocommit(False)
-#
-#     def _ensure_connected(self):
-#         # self.reconnect()
-#         # Mysql by default closes client connections that are idle for
-#         # 8 hours, but the client library does not report this fact until
-#         # you try to perform a query and it fails.  Protect against this
-#         # case by preemptively closing and reopening the connection
-#         # if it has been idle for too long (7 hours by default).
-#         # if (self._db is None or
-#         #         (time.time() - self._last_use_time > self.max_idle_time)):
-#         self.reconnect()
-#         self._last_use_time = time.time()
-#         try:
-#             cur = self._db.cursor()
-#             cur.execute('select 1')
-#         except:
-#             self.reconnect()
-#         finally:
+#     con = Connection(host=host, database=database, user=user, password=password, time_zone='SYSTEM')
+#     if pre_exe:
+#         for sql in pre_exe:
 #             try:
-#                 cur.close()
+#                 con.execute(sql)
 #             except:
 #                 pass
+#     return con
 
-# class MyConnection(Connection):
-#     """ 数据库连接 事务支持
-#     """
-#
-#     def __init__(self, host, database, user=None, password=None,
-#                  max_idle_time=7 * 3600, connect_timeout=0, autocommit=True,
-#                  time_zone="+0:00", charset="utf8", sql_mode="TRADITIONAL"):
-#         self.autocommit = autocommit
-#         super(MyConnection, self).__init__(host, database, user, password, max_idle_time, connect_timeout,
-#                                            time_zone=time_zone, charset=charset, sql_mode=sql_mode)
-#
-#     def reconnect(self):
-#         """重写连接方法"""
-#         self.close()
-#         self._db = MySQLdb.connect(**self._db_args)
-#         self._db.autocommit(self.autocommit)
-#
-#     def execute_trans(self, query, m, *param, **kwargs):
-#         self._ensure_connected()
-#         cursor = self._db.cursor()
-#         try:
-#             cursor.execute(query, kwargs or param)
-#             if not self.autocommit:
-#                 self._db.commit()
-#             return getattr(cursor, m)
-#         except Exception as ex:
-#             if not self.autocommit:
-#                 self._db.rollback()
-#             logging.error('[execute_trans]: ', repr(ex))
-#         finally:
-#             cursor.close()
-#
-#     def execute_lastrowid(self, query, *parameters, **kwparameters):
-#         """Executes the given query, returning the lastrowid from the query."""
-#         return self.execute_trans(query=query, m='lastrowid', *parameters, **kwparameters)
-#
-#     def execute_rowcount(self, query, *parameters, **kwparameters):
-#         """Executes the given query, returning the rowcount from the query."""
-#         return self.execute_trans(query=query, m='rowcount', *parameters, **kwparameters)
-#
-#     def transaction(self, queries):
-#         """ queries: sql tuple like ((sql, values), (sql, values))
-#         """
-#         if self.autocommit:
-#             raise Exception('Please set connection autocommit to False')
-#         self._ensure_connected()
-#         cursor = self._db.cursor()
-#         # cursor = self._cursor()
-#         try:
-#             for sql, values in queries:
-#                 cursor.execute(sql, values)
-#             self._db.commit()
-#             return True
-#         except Exception as e:
-#             self._db.rollback()
-#             raise Exception(e.args[0], e.args[1])
-#         finally:
-#             cursor.close()
-#             # self.close()
 
-def get_connection(host, database, user=None, password=None, pre_exe=None, autocommit=True):
-    """ 数据库连接
-        pre_exe: 数据库准备执行语句, 列表方式罗列
-    """
-    con = Connection(host=host, database=database, user=user, password=password, time_zone='SYSTEM')
-    if pre_exe:
-        for sql in pre_exe:
-            try:
-                con.execute(sql)
-            except:
-                pass
-    return con
+# _CONNS_ = {}
+#
+#
+# def get_conn(db_name):
+#     if db_name in _CONNS_:
+#         return _CONNS_[db_name]
+#     _CONNS_[db_name] = db = Connection()
+#     db._db_args.pop('init_command', None)
+#     db.execute("set TIME_ZONE = 'SYSTEM'")
+#     return db
 
 
 # 定义异常
@@ -276,9 +161,6 @@ class Base(object):
     # 必须在子类中重置的属性
     _table_name = None  # 数据库表名
     _rows = None  # 表列名
-    # 数据库链接配置
-    # _db_config = None
-    _db_conn = None
     # 是否打印sql语句
     _echo = False
 
@@ -309,6 +191,10 @@ class Base(object):
         if hasattr(self, key):
             return getattr(self, key)
         raise KeyError
+
+    @classmethod
+    def get_conn(cls):
+        raise Exception('must define get_conn method')
 
     @classmethod
     def begin(cls):
@@ -343,7 +229,7 @@ class Base(object):
         max_try = 3
         for i in range(max_try):
             try:
-                _db_con = cls._db_conn
+                _db_con = cls.get_conn()
                 nid = _execute_sql(sql, values, db_con=_db_con, mode='execute', echo=cls._echo)
             except Exception as ex:
                 if ex[0] == 1062:
@@ -387,7 +273,7 @@ class Base(object):
         sql = 'INSERT INTO `' + cls._table_name + '` (' + sql_rows + ') VALUES ' + row_values
         if not commit:
             return sql, values
-        _db_con = cls._db_conn
+        _db_con = cls.get_conn()
         try:
             fid = _execute_sql(sql, values, db_con=_db_con, mode='execute', echo=cls._echo)
             return fid
@@ -409,7 +295,7 @@ class Base(object):
         if not commit:
             return sql, values
         # sql, values, is_o = cls.__get(tn=cls._table_name, fields=fields, **kwargs)
-        _db_con = cls._db_conn
+        _db_con = cls.get_conn()
         o = _execute_sql(sql, values, db_con=_db_con, mode="get", echo=cls._echo)
         if is_o and o:
             return cls(o)
@@ -456,7 +342,7 @@ class Base(object):
                                        order_by=order_by, limit=limit, **kwargs)
         if not commit:
             return sql, values
-        _db_con = cls._db_conn
+        _db_con = cls.get_conn()
         ds = _execute_sql(sql, values, db_con=_db_con, mode='query', echo=cls._echo)
         return [cls(o) for o in ds] if is_o else ds
 
@@ -466,7 +352,7 @@ class Base(object):
         """
         sql, values, is_o = cls.__find(tn=cls._table_name, args=args, join=join, fields=fields,
                                        order_by=order_by, limit=limit, **kwargs)
-        _db_con = cls._db_conn
+        _db_con = cls.get_conn()
         return _execute_sql(sql, values, db_con=_db_con, mode='iter', echo=cls._echo)
 
     @classmethod
@@ -482,7 +368,7 @@ class Base(object):
         )
         if not commit:
             return sql, []
-        _db_con = cls._db_conn
+        _db_con = cls.get_conn()
         ds = _execute_sql(sql, [], db_con=_db_con, mode='query', echo=cls._echo)
         return [cls(d) for d in ds] if is_o else ds
 
@@ -550,7 +436,7 @@ class Base(object):
             return sql, values
         # sql, values, is_o = cls.__page(tn=cls._table_name, page=page, args=args, join=join,
         #                                fields=fields, order_by=order_by, per_page=per_page, **kwargs)
-        _db_con = cls._db_conn
+        _db_con = cls.get_conn()
         ds = _execute_sql(sql, values, db_con=_db_con, mode='query', echo=cls._echo)
         return [cls(o) for o in ds] if is_o else ds
 
@@ -565,7 +451,7 @@ class Base(object):
         # sql, values = cls.__delete(tn=cls._table_name, args=args, **kwargs)
         if not commit:
             return sql, values
-        _db_con = cls._db_conn
+        _db_con = cls.get_conn()
         return _execute_sql(sql, values, db_con=_db_con, mode='execute_rowcount', echo=cls._echo)
 
     @classmethod
@@ -580,7 +466,7 @@ class Base(object):
         # sql, values = cls.__number(tn=cls._table_name, args=args, **kwargs)
         if not commit:
             return sql, values
-        _db_con = cls._db_conn
+        _db_con = cls.get_conn()
         result = _execute_sql(sql, values, db_con=_db_con, mode='query', echo=cls._echo)
         return int(result[0].get('COUNT(*)', 0)) if result else 0
 
@@ -604,14 +490,14 @@ class Base(object):
         vs.extend(set_values)
         vs.extend(values)
         sql = 'select id from ' + cls._table_name + _where + ' for update;' + sql
-        _db_con = cls._db_conn
+        _db_con = cls.get_conn()
         if not commit:
             return sql, vs
         return _execute_sql(sql, vs, db_con=_db_con, mode='execute_rowcount', echo=cls._echo)
 
     @classmethod
     def execute_sql(cls, sql, values, mode):
-        _db_con = cls._db_conn
+        _db_con = cls.get_conn()
         return _execute_sql(sql, values, db_con=_db_con, mode=mode, echo=cls._echo)
 
     def __update(self, tn, **kwargs):  # 必须带上至少一个差异性参数 kwargs 带有self.id
@@ -637,7 +523,7 @@ class Base(object):
         if not commit:
             return sql, values
         # sql, values = self.__update(tn=self._table_name, **kwargs)
-        _db_con = self._db_conn
+        _db_con = self.get_conn()
         # try:
         rows = _execute_sql(sql, values, db_con=_db_con, mode='execute_rowcount', echo=self._echo)
         if rows:
